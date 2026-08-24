@@ -1,0 +1,672 @@
+/* =========================================================
+   AutoPost AI — Frontend ↔ n8n
+   File: script.js
+   ========================================================= */
+
+"use strict";
+
+
+/* =========================================================
+   CONFIGURATION
+   ========================================================= */
+
+// IMPORTANT:
+// Yahan apna n8n Production Webhook URL paste karo.
+
+const N8N_WEBHOOK_URL =
+    "PASTE_YOUR_N8N_PRODUCTION_WEBHOOK_URL_HERE";
+
+
+/* =========================================================
+   DOM ELEMENTS
+   ========================================================= */
+
+const postForm =
+    document.querySelector("#postForm");
+
+const promptInput =
+    document.querySelector("#prompt");
+
+const platformSelect =
+    document.querySelector("#platform");
+
+const toneSelect =
+    document.querySelector("#tone");
+
+const generateButton =
+    document.querySelector(".generate-button");
+
+const loader =
+    document.querySelector(".loader");
+
+const previewContent =
+    document.querySelector(".post-content p");
+
+const previewPlatform =
+    document.querySelector(".facebook-user strong");
+
+const previewTime =
+    document.querySelector(".facebook-user span");
+
+const activityContainer =
+    document.querySelector(".activity");
+
+
+/* =========================================================
+   INITIALIZE
+   ========================================================= */
+
+document.addEventListener("DOMContentLoaded", () => {
+
+    initializePreview();
+
+    setupForm();
+
+    setupLivePreview();
+
+});
+
+
+/* =========================================================
+   DEFAULT PREVIEW
+   ========================================================= */
+
+function initializePreview() {
+
+    if (previewContent) {
+        previewContent.textContent =
+            "Your AI-generated post will appear here.";
+    }
+
+    if (previewPlatform) {
+        previewPlatform.textContent =
+            "Facebook";
+    }
+
+    if (previewTime) {
+        previewTime.textContent =
+            "Just now";
+    }
+
+}
+
+
+/* =========================================================
+   FORM
+   ========================================================= */
+
+function setupForm() {
+
+    if (!postForm) {
+        console.error(
+            "AutoPost AI: #postForm not found."
+        );
+
+        return;
+    }
+
+
+    postForm.addEventListener(
+        "submit",
+        async (event) => {
+
+            event.preventDefault();
+
+
+            const prompt =
+                promptInput?.value.trim() || "";
+
+
+            const platform =
+                platformSelect?.value || "Facebook";
+
+
+            const tone =
+                toneSelect?.value || "Professional";
+
+
+            /* -----------------------------------------
+               VALIDATION
+               ----------------------------------------- */
+
+            if (!prompt) {
+
+                showMessage(
+                    "Please enter what you want to create.",
+                    "warning"
+                );
+
+                promptInput?.focus();
+
+                return;
+            }
+
+
+            /* -----------------------------------------
+               WEBHOOK CHECK
+               ----------------------------------------- */
+
+            if (
+                !N8N_WEBHOOK_URL ||
+                N8N_WEBHOOK_URL.includes(
+                    "PASTE_YOUR_N8N"
+                )
+            ) {
+
+                showMessage(
+                    "Please add your n8n Webhook URL in script.js.",
+                    "error"
+                );
+
+                return;
+            }
+
+
+            /* -----------------------------------------
+               LOADING
+               ----------------------------------------- */
+
+            setLoading(true);
+
+
+            try {
+
+                const result =
+                    await sendToN8N({
+                        prompt,
+                        platform,
+                        tone
+                    });
+
+
+                /* -------------------------------------
+                   SUCCESS
+                   ------------------------------------- */
+
+                if (
+                    !result ||
+                    result.success === false
+                ) {
+
+                    throw new Error(
+                        result?.message ||
+                        "AI generation failed."
+                    );
+
+                }
+
+
+                const generatedPost =
+                    result.post;
+
+
+                if (
+                    !generatedPost ||
+                    typeof generatedPost !== "string"
+                ) {
+
+                    throw new Error(
+                        "n8n returned an invalid post."
+                    );
+
+                }
+
+
+                /* -------------------------------------
+                   UPDATE PREVIEW
+                   ------------------------------------- */
+
+                updatePreview(
+                    generatedPost,
+                    result.platform || platform
+                );
+
+
+                /* -------------------------------------
+                   ACTIVITY
+                   ------------------------------------- */
+
+                addActivity(
+                    "✓",
+                    "AI post generated successfully"
+                );
+
+
+                showMessage(
+                    "Post generated successfully.",
+                    "success"
+                );
+
+
+            } catch (error) {
+
+                console.error(
+                    "AutoPost AI:",
+                    error
+                );
+
+
+                showMessage(
+                    error.message ||
+                    "Something went wrong. Please try again.",
+                    "error"
+                );
+
+
+                addActivity(
+                    "!",
+                    "Post generation failed"
+                );
+
+
+            } finally {
+
+                setLoading(false);
+
+            }
+
+        }
+    );
+
+}
+
+
+/* =========================================================
+   SEND DATA TO n8n
+   ========================================================= */
+
+async function sendToN8N({
+    prompt,
+    platform,
+    tone
+}) {
+
+    const response =
+        await fetch(
+            N8N_WEBHOOK_URL,
+            {
+                method: "POST",
+
+                headers: {
+                    "Content-Type":
+                        "application/json"
+                },
+
+                body: JSON.stringify({
+
+                    prompt: prompt,
+
+                    platform: platform,
+
+                    tone: tone
+
+                })
+            }
+        );
+
+
+    /* ---------------------------------------------
+       HTTP ERROR
+       --------------------------------------------- */
+
+    if (!response.ok) {
+
+        throw new Error(
+            `n8n request failed (${response.status}).`
+        );
+
+    }
+
+
+    /* ---------------------------------------------
+       READ RESPONSE
+       --------------------------------------------- */
+
+    const data =
+        await response.json();
+
+
+    /*
+       n8n may return the response directly
+       or inside an array depending on workflow.
+    */
+
+    if (Array.isArray(data)) {
+
+        return data[0] || {};
+
+    }
+
+
+    return data;
+
+}
+
+
+/* =========================================================
+   UPDATE PREVIEW
+   ========================================================= */
+
+function updatePreview(
+    postText,
+    platform
+) {
+
+    if (previewContent) {
+
+        previewContent.textContent =
+            postText;
+
+    }
+
+
+    if (previewPlatform) {
+
+        previewPlatform.textContent =
+            platform;
+
+    }
+
+
+    if (previewTime) {
+
+        previewTime.textContent =
+            "Just now";
+
+    }
+
+}
+
+
+/* =========================================================
+   LOADING STATE
+   ========================================================= */
+
+function setLoading(
+    loading
+) {
+
+    if (generateButton) {
+
+        generateButton.disabled =
+            loading;
+
+        generateButton.style.opacity =
+            loading ? "0.65" : "1";
+
+        generateButton.style.cursor =
+            loading ? "wait" : "pointer";
+
+    }
+
+
+    if (loader) {
+
+        loader.classList.toggle(
+            "active",
+            loading
+        );
+
+    }
+
+}
+
+
+/* =========================================================
+   ACTIVITY
+   ========================================================= */
+
+function addActivity(
+    icon,
+    message
+) {
+
+    if (!activityContainer) {
+        return;
+    }
+
+
+    const item =
+        document.createElement("div");
+
+    item.className =
+        "activity-item";
+
+
+    const iconElement =
+        document.createElement("div");
+
+    iconElement.className =
+        "activity-icon";
+
+    iconElement.textContent =
+        icon;
+
+
+    const messageElement =
+        document.createElement("span");
+
+    messageElement.textContent =
+        message;
+
+
+    const timeElement =
+        document.createElement("span");
+
+    timeElement.className =
+        "activity-time";
+
+    timeElement.textContent =
+        "Just now";
+
+
+    item.appendChild(
+        iconElement
+    );
+
+    item.appendChild(
+        messageElement
+    );
+
+    item.appendChild(
+        timeElement
+    );
+
+
+    activityContainer.prepend(
+        item
+    );
+
+
+    /* Keep latest 5 */
+
+    const items =
+        activityContainer.querySelectorAll(
+            ".activity-item"
+        );
+
+
+    if (items.length > 5) {
+
+        items[
+            items.length - 1
+        ].remove();
+
+    }
+
+}
+
+
+/* =========================================================
+   MESSAGE
+   ========================================================= */
+
+function showMessage(
+    message,
+    type = "info"
+) {
+
+    const oldMessage =
+        document.querySelector(
+            ".auto-message"
+        );
+
+
+    if (oldMessage) {
+        oldMessage.remove();
+    }
+
+
+    const messageElement =
+        document.createElement("div");
+
+
+    messageElement.className =
+        `auto-message ${type}`;
+
+
+    messageElement.textContent =
+        message;
+
+
+    messageElement.style.cssText = `
+        margin-top: 14px;
+        padding: 12px 14px;
+        border-radius: 12px;
+        font-size: 12px;
+        line-height: 1.5;
+        background: rgba(255,255,255,0.04);
+        border: 1px solid rgba(255,255,255,0.08);
+        color: #cbd5e1;
+    `;
+
+
+    if (type === "success") {
+
+        messageElement.style.color =
+            "#22c55e";
+
+    }
+
+
+    if (type === "error") {
+
+        messageElement.style.color =
+            "#ef4444";
+
+    }
+
+
+    if (type === "warning") {
+
+        messageElement.style.color =
+            "#f59e0b";
+
+    }
+
+
+    if (postForm) {
+
+        postForm.appendChild(
+            messageElement
+        );
+
+    }
+
+
+    setTimeout(() => {
+
+        if (messageElement) {
+            messageElement.remove();
+        }
+
+    }, 4000);
+
+}
+
+
+/* =========================================================
+   LIVE PREVIEW
+   ========================================================= */
+
+function setupLivePreview() {
+
+    if (!promptInput) {
+        return;
+    }
+
+
+    promptInput.addEventListener(
+        "input",
+        () => {
+
+            const text =
+                promptInput.value.trim();
+
+
+            if (
+                !text &&
+                previewContent
+            ) {
+
+                previewContent.textContent =
+                    "Your AI-generated post will appear here.";
+
+            }
+
+        }
+    );
+
+}
+
+
+/* =========================================================
+   KEYBOARD SHORTCUT
+   Ctrl + Enter
+   ========================================================= */
+
+document.addEventListener(
+    "keydown",
+    (event) => {
+
+        if (
+            (event.ctrlKey ||
+             event.metaKey) &&
+            event.key === "Enter"
+        ) {
+
+            event.preventDefault();
+
+
+            if (postForm) {
+
+                postForm.requestSubmit();
+
+            }
+
+        }
+
+    }
+);
+
+
+/* =========================================================
+   GLOBAL API
+   ========================================================= */
+
+window.AutoPostAI = {
+
+    sendToN8N,
+
+    updatePreview,
+
+    addActivity,
+
+    setLoading
+
+};
+
+
+console.log(
+    "AutoPost AI — n8n integration loaded."
+);
