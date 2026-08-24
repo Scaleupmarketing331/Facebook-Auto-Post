@@ -13,8 +13,23 @@
 // IMPORTANT:
 // Yahan apna n8n Production Webhook URL paste karo.
 
-const N8N_WEBHOOK_URL =
-    "http://localhost:5678/webhook-test/c6dc9966-1bf4-4176-a9b2-5c31b62f8b11";
+
+    const WEBHOOK_URL =
+  "http://localhost:5678/webhook-test/c6dc9966-1bf4-4176-a9b2-5c31b62f8b11";
+
+fetch(WEBHOOK_URL, {
+  method: "POST",
+  headers: {
+    "Content-Type": "application/json"
+  },
+  body: JSON.stringify({
+    name: "Test",
+    message: "Hello from website"
+  })
+})
+  .then(response => response.json())
+  .then(data => console.log("Webhook response:", data))
+  .catch(error => console.error("Webhook error:", error));
 
 
 /* =========================================================
