@@ -7,75 +7,93 @@
 
 
 /* =========================================================
+   n8n WEBHOOK CONFIGURATION
+   ========================================================= */
+
+const N8N_WEBHOOK_URL =
+    "http://localhost:5678/webhook-test/c6dc9966-1bf4-4176-a9b2-5c31b62f8b11";
+
+
+/* =========================================================
    DOM ELEMENTS
    ========================================================= */
 
-const postForm = document.querySelector("#postForm");
-const promptInput = document.querySelector("#prompt");
-const platformSelect = document.querySelector("#platform");
-const toneSelect = document.querySelector("#tone");
-const generateButton = document.querySelector(".generate-button");
+const postForm =
+    document.querySelector("#postForm");
 
-const loader = document.querySelector(".loader");
+const promptInput =
+    document.querySelector("#prompt");
 
-const previewContent = document.querySelector(".post-content p");
-const previewPlatform = document.querySelector(".facebook-user strong");
-const previewTime = document.querySelector(".facebook-user span");
+const platformSelect =
+    document.querySelector("#platform");
 
-const activityContainer = document.querySelector(".activity");
+const toneSelect =
+    document.querySelector("#tone");
 
+const generateButton =
+    document.querySelector(".generate-button");
 
-/* =========================================================
-   SAFETY CHECK
-   ========================================================= */
+const loader =
+    document.querySelector(".loader");
 
-if (!postForm) {
-    console.warn("AutoPost AI: #postForm was not found.");
-}
+const previewContent =
+    document.querySelector(".post-content p");
 
+const previewPlatform =
+    document.querySelector(".facebook-user strong");
 
-/* =========================================================
-   DEFAULT DATA
-   ========================================================= */
+const previewTime =
+    document.querySelector(".facebook-user span");
 
-const DEFAULT_POST = {
-    text: "Your AI-generated Facebook post will appear here.",
-    platform: "Facebook",
-    time: "Just now"
-};
+const activityContainer =
+    document.querySelector(".activity");
 
 
 /* =========================================================
    INITIALIZE
    ========================================================= */
 
-document.addEventListener("DOMContentLoaded", () => {
+document.addEventListener(
+    "DOMContentLoaded",
+    () => {
 
-    initializePreview();
+        initializePreview();
 
-    setupLivePreview();
+        setupForm();
 
-    setupForm();
+        setupLivePreview();
 
-});
+    }
+);
 
 
 /* =========================================================
-   INITIALIZE PREVIEW
+   INITIAL PREVIEW
    ========================================================= */
 
 function initializePreview() {
 
     if (previewContent) {
-        previewContent.textContent = DEFAULT_POST.text;
+
+        previewContent.textContent =
+            "Your AI-generated post will appear here.";
+
     }
+
 
     if (previewPlatform) {
-        previewPlatform.textContent = DEFAULT_POST.platform;
+
+        previewPlatform.textContent =
+            "Facebook";
+
     }
 
+
     if (previewTime) {
-        previewTime.textContent = DEFAULT_POST.time;
+
+        previewTime.textContent =
+            "Just now";
+
     }
 
 }
@@ -88,224 +106,405 @@ function initializePreview() {
 function setupForm() {
 
     if (!postForm) {
+
+        console.error(
+            "AutoPost AI: #postForm was not found."
+        );
+
         return;
+
     }
 
-    postForm.addEventListener("submit", async (event) => {
 
-        event.preventDefault();
+    postForm.addEventListener(
+        "submit",
+        handleFormSubmit
+    );
 
-        const prompt = promptInput?.value.trim() || "";
-        const platform = platformSelect?.value || "Facebook";
-        const tone = toneSelect?.value || "Professional";
+}
 
-        if (!prompt) {
 
-            showMessage(
-                "Please enter a topic or idea first.",
-                "warning"
-            );
+/* =========================================================
+   FORM SUBMIT
+   ========================================================= */
 
-            promptInput?.focus();
+async function handleFormSubmit(event) {
 
-            return;
+    event.preventDefault();
+
+
+    const prompt =
+        promptInput?.value.trim() || "";
+
+
+    const platform =
+        platformSelect?.value || "Facebook";
+
+
+    const tone =
+        toneSelect?.value || "Professional";
+
+
+    /* -----------------------------------------
+       CHECK PROMPT
+       ----------------------------------------- */
+
+    if (!prompt) {
+
+        showMessage(
+            "Please enter your post request first.",
+            "warning"
+        );
+
+        if (promptInput) {
+
+            promptInput.focus();
+
         }
 
-        setLoading(true);
+        return;
 
-        try {
+    }
 
-            const generatedPost = await generatePost({
+
+    /* -----------------------------------------
+       CHECK WEBHOOK
+       ----------------------------------------- */
+
+    if (
+        !N8N_WEBHOOK_URL ||
+        N8N_WEBHOOK_URL.includes(
+            "PASTE_YOUR"
+        )
+    ) {
+
+        showMessage(
+            "n8n Webhook URL is missing.",
+            "error"
+        );
+
+        return;
+
+    }
+
+
+    /* -----------------------------------------
+       START LOADING
+       ----------------------------------------- */
+
+    setLoading(true);
+
+
+    try {
+
+        addActivity(
+            "→",
+            "Sending request to AI..."
+        );
+
+
+        /* -----------------------------------------
+           SEND TO n8n
+           ----------------------------------------- */
+
+        const result =
+            await sendToN8N(
                 prompt,
                 platform,
                 tone
-            });
-
-            updatePreview(
-                generatedPost,
-                platform
             );
 
-            addActivity(
-                "✓",
-                "AI post generated successfully"
+
+        console.log(
+            "n8n Response:",
+            result
+        );
+
+
+        /* -----------------------------------------
+           VALIDATE RESPONSE
+           ----------------------------------------- */
+
+        if (!result) {
+
+            throw new Error(
+                "No response received from n8n."
             );
-
-        } catch (error) {
-
-            console.error(
-                "AutoPost AI Error:",
-                error
-            );
-
-            showMessage(
-                "Something went wrong. Please try again.",
-                "error"
-            );
-
-            addActivity(
-                "!",
-                "Post generation failed"
-            );
-
-        } finally {
-
-            setLoading(false);
 
         }
 
-    });
 
-}
+        if (
+            result.success === false
+        ) {
+
+            throw new Error(
+                result.message ||
+                "AI generation failed."
+            );
+
+        }
 
 
-/* =========================================================
-   LIVE PREVIEW
-   ========================================================= */
+        /* -----------------------------------------
+           GET POST
+           ----------------------------------------- */
 
-function setupLivePreview() {
+        const generatedPost =
+            extractPost(result);
 
-    if (!promptInput) {
-        return;
+
+        if (!generatedPost) {
+
+            throw new Error(
+                "n8n response does not contain a post."
+            );
+
+        }
+
+
+        /* -----------------------------------------
+           UPDATE FACEBOOK PREVIEW
+           ----------------------------------------- */
+
+        updatePreview(
+            generatedPost,
+            result.platform || platform
+        );
+
+
+        /* -----------------------------------------
+           ACTIVITY
+           ----------------------------------------- */
+
+        addActivity(
+            "✓",
+            "AI post generated successfully"
+        );
+
+
+        showMessage(
+            "Post generated successfully.",
+            "success"
+        );
+
+
+    } catch (error) {
+
+        console.error(
+            "AutoPost AI Error:",
+            error
+        );
+
+
+        showMessage(
+            getFriendlyError(error),
+            "error"
+        );
+
+
+        addActivity(
+            "!",
+            "Post generation failed"
+        );
+
+
+    } finally {
+
+        setLoading(false);
+
     }
 
-    promptInput.addEventListener(
-        "input",
-        debounce(() => {
-
-            const text =
-                promptInput.value.trim();
-
-            if (!text) {
-
-                if (previewContent) {
-                    previewContent.textContent =
-                        DEFAULT_POST.text;
-                }
-
-                return;
-            }
-
-            if (previewContent) {
-
-                previewContent.textContent =
-                    text;
-
-            }
-
-        }, 250)
-    );
-
 }
 
 
 /* =========================================================
-   GENERATE POST
+   SEND REQUEST TO n8n
    ========================================================= */
 
-async function generatePost({
-    prompt,
-    platform,
-    tone
-}) {
-
-    /*
-       ------------------------------------------------------
-       IMPORTANT
-
-       This function currently creates a local demo post.
-
-       Later, when your n8n / AI API backend is ready,
-       replace this function with your API request.
-       ------------------------------------------------------
-    */
-
-    await delay(900);
-
-    const post = createDemoPost(
-        prompt,
-        platform,
-        tone
-    );
-
-    return post;
-
-}
-
-
-/* =========================================================
-   DEMO AI POST GENERATOR
-   ========================================================= */
-
-function createDemoPost(
+async function sendToN8N(
     prompt,
     platform,
     tone
 ) {
 
-    const cleanPrompt =
-        capitalizeFirstLetter(prompt);
+    const response =
+        await fetch(
+            N8N_WEBHOOK_URL,
+            {
+                method: "POST",
 
-    let post = "";
+                headers: {
+                    "Content-Type":
+                        "application/json"
+                },
 
-    switch (tone.toLowerCase()) {
+                body: JSON.stringify({
 
-        case "professional":
+                    prompt: prompt,
 
-            post =
-                `${cleanPrompt}\n\n` +
-                `Discover valuable insights and practical ideas ` +
-                `that can help you move forward.\n\n` +
-                `Stay consistent. Keep learning. Keep growing. 🚀`;
+                    platform: platform,
 
-            break;
+                    tone: tone
 
-
-        case "friendly":
-
-            post =
-                `Hey everyone! 👋\n\n` +
-                `${cleanPrompt}\n\n` +
-                `What do you think? Share your thoughts below! 💬`;
-
-            break;
+                })
+            }
+        );
 
 
-        case "creative":
+    /* -----------------------------------------
+       HTTP ERROR
+       ----------------------------------------- */
 
-            post =
-                `✨ ${cleanPrompt}\n\n` +
-                `Sometimes one simple idea can create a big difference.\n\n` +
-                `Think differently. Create boldly. 🚀`;
+    if (!response.ok) {
 
-            break;
-
-
-        case "emotional":
-
-            post =
-                `${cleanPrompt}\n\n` +
-                `Every journey starts with one small step. ❤️\n\n` +
-                `Keep believing in yourself and never stop moving forward.`;
-
-            break;
-
-
-        default:
-
-            post =
-                `${cleanPrompt}\n\n` +
-                `Stay focused, stay consistent and keep growing. 🚀`;
+        throw new Error(
+            `n8n returned HTTP ${response.status}`
+        );
 
     }
 
-    return post;
+
+    /* -----------------------------------------
+       RESPONSE TEXT
+       ----------------------------------------- */
+
+    const responseText =
+        await response.text();
+
+
+    if (!responseText) {
+
+        throw new Error(
+            "n8n returned an empty response."
+        );
+
+    }
+
+
+    /* -----------------------------------------
+       PARSE JSON
+       ----------------------------------------- */
+
+    try {
+
+        return JSON.parse(
+            responseText
+        );
+
+    } catch {
+
+        /*
+           If n8n returns plain text,
+           use it as the post.
+        */
+
+        return {
+
+            success: true,
+
+            post: responseText,
+
+            platform: platform
+
+        };
+
+    }
 
 }
 
 
 /* =========================================================
-   UPDATE FACEBOOK PREVIEW
+   EXTRACT POST
+   ========================================================= */
+
+function extractPost(data) {
+
+    /* -----------------------------------------
+       Direct response
+       ----------------------------------------- */
+
+    if (
+        typeof data.post === "string" &&
+        data.post.trim()
+    ) {
+
+        return data.post.trim();
+
+    }
+
+
+    /* -----------------------------------------
+       AI output
+       ----------------------------------------- */
+
+    if (
+        typeof data.output === "string" &&
+        data.output.trim()
+    ) {
+
+        return data.output.trim();
+
+    }
+
+
+    /* -----------------------------------------
+       Message response
+       ----------------------------------------- */
+
+    if (
+        typeof data.message === "string" &&
+        data.message.trim()
+    ) {
+
+        return data.message.trim();
+
+    }
+
+
+    /* -----------------------------------------
+       Array response
+       ----------------------------------------- */
+
+    if (Array.isArray(data)) {
+
+        for (
+            const item of data
+        ) {
+
+            if (
+                item &&
+                typeof item.post === "string" &&
+                item.post.trim()
+            ) {
+
+                return item.post.trim();
+
+            }
+
+
+            if (
+                item &&
+                typeof item.output === "string" &&
+                item.output.trim()
+            ) {
+
+                return item.output.trim();
+
+            }
+
+        }
+
+    }
+
+
+    return "";
+
+}
+
+
+/* =========================================================
+   UPDATE PREVIEW
    ========================================================= */
 
 function updatePreview(
@@ -320,12 +519,14 @@ function updatePreview(
 
     }
 
+
     if (previewPlatform) {
 
         previewPlatform.textContent =
             platform;
 
     }
+
 
     if (previewTime) {
 
@@ -341,18 +542,42 @@ function updatePreview(
    LOADING STATE
    ========================================================= */
 
-function setLoading(isLoading) {
+function setLoading(
+    isLoading
+) {
 
     if (generateButton) {
 
         generateButton.disabled =
             isLoading;
 
+
         generateButton.style.opacity =
-            isLoading ? "0.7" : "1";
+            isLoading
+                ? "0.65"
+                : "1";
+
 
         generateButton.style.cursor =
-            isLoading ? "wait" : "pointer";
+            isLoading
+                ? "wait"
+                : "pointer";
+
+
+        if (isLoading) {
+
+            generateButton.setAttribute(
+                "aria-busy",
+                "true"
+            );
+
+        } else {
+
+            generateButton.removeAttribute(
+                "aria-busy"
+            );
+
+        }
 
     }
 
@@ -379,18 +604,25 @@ function addActivity(
 ) {
 
     if (!activityContainer) {
+
         return;
+
     }
 
+
     const item =
-        document.createElement("div");
+        document.createElement(
+            "div"
+        );
 
     item.className =
         "activity-item";
 
 
     const iconElement =
-        document.createElement("div");
+        document.createElement(
+            "div"
+        );
 
     iconElement.className =
         "activity-icon";
@@ -400,14 +632,18 @@ function addActivity(
 
 
     const messageElement =
-        document.createElement("span");
+        document.createElement(
+            "span"
+        );
 
     messageElement.textContent =
         message;
 
 
     const timeElement =
-        document.createElement("span");
+        document.createElement(
+            "span"
+        );
 
     timeElement.className =
         "activity-time";
@@ -420,9 +656,11 @@ function addActivity(
         iconElement
     );
 
+
     item.appendChild(
         messageElement
     );
+
 
     item.appendChild(
         timeElement
@@ -434,20 +672,20 @@ function addActivity(
     );
 
 
-    /*
-       Keep only the latest 5 activities.
-    */
+    /* -----------------------------------------
+       Keep latest 5 activities
+       ----------------------------------------- */
 
-    const activities =
+    const items =
         activityContainer.querySelectorAll(
             ".activity-item"
         );
 
 
-    if (activities.length > 5) {
+    if (items.length > 5) {
 
-        activities[
-            activities.length - 1
+        items[
+            items.length - 1
         ].remove();
 
     }
@@ -464,21 +702,28 @@ function showMessage(
     type = "info"
 ) {
 
-    const existing =
+    const oldMessage =
         document.querySelector(
             ".auto-message"
         );
 
-    if (existing) {
-        existing.remove();
+
+    if (oldMessage) {
+
+        oldMessage.remove();
+
     }
 
 
     const messageElement =
-        document.createElement("div");
+        document.createElement(
+            "div"
+        );
+
 
     messageElement.className =
         `auto-message ${type}`;
+
 
     messageElement.textContent =
         message;
@@ -496,6 +741,30 @@ function showMessage(
     `;
 
 
+    if (type === "success") {
+
+        messageElement.style.color =
+            "#22c55e";
+
+    }
+
+
+    if (type === "error") {
+
+        messageElement.style.color =
+            "#ef4444";
+
+    }
+
+
+    if (type === "warning") {
+
+        messageElement.style.color =
+            "#f59e0b";
+
+    }
+
+
     if (postForm) {
 
         postForm.appendChild(
@@ -505,94 +774,160 @@ function showMessage(
     }
 
 
-    setTimeout(() => {
+    setTimeout(
+        () => {
 
-        messageElement.remove();
+            if (
+                messageElement &&
+                messageElement.parentNode
+            ) {
 
-    }, 3500);
+                messageElement.remove();
 
-}
+            }
 
-
-/* =========================================================
-   DEBOUNCE
-   ========================================================= */
-
-function debounce(
-    callback,
-    wait = 250
-) {
-
-    let timeout;
-
-    return (...args) => {
-
-        clearTimeout(timeout);
-
-        timeout = setTimeout(
-            () => callback(...args),
-            wait
-        );
-
-    };
-
-}
-
-
-/* =========================================================
-   DELAY
-   ========================================================= */
-
-function delay(milliseconds) {
-
-    return new Promise(
-        resolve =>
-            setTimeout(
-                resolve,
-                milliseconds
-            )
+        },
+        4000
     );
 
 }
 
 
 /* =========================================================
-   CAPITALIZE
+   FRIENDLY ERROR
    ========================================================= */
 
-function capitalizeFirstLetter(
-    text
+function getFriendlyError(
+    error
 ) {
 
-    if (!text) {
-        return "";
+    const message =
+        error?.message || "";
+
+
+    if (
+        message.includes(
+            "Failed to fetch"
+        )
+    ) {
+
+        return (
+            "Could not connect to n8n. " +
+            "Make sure n8n is running and the Webhook is listening."
+        );
+
     }
 
-    return text.charAt(0).toUpperCase() +
-        text.slice(1);
+
+    if (
+        message.includes(
+            "ERR_CONNECTION_REFUSED"
+        )
+    ) {
+
+        return (
+            "n8n is not reachable. " +
+            "Please start n8n and try again."
+        );
+
+    }
+
+
+    if (
+        message.includes(
+            "HTTP 404"
+        )
+    ) {
+
+        return (
+            "Webhook was not found. " +
+            "Check the n8n Webhook URL."
+        );
+
+    }
+
+
+    if (
+        message.includes(
+            "HTTP 500"
+        )
+    ) {
+
+        return (
+            "n8n returned a server error. " +
+            "Check your n8n workflow."
+        );
+
+    }
+
+
+    return (
+        message ||
+        "Something went wrong. Please try again."
+    );
+
+}
+
+
+/* =========================================================
+   LIVE PREVIEW RESET
+   ========================================================= */
+
+function setupLivePreview() {
+
+    if (!promptInput) {
+
+        return;
+
+    }
+
+
+    promptInput.addEventListener(
+        "input",
+        () => {
+
+            const text =
+                promptInput.value.trim();
+
+
+            /*
+               Only show placeholder when
+               the input is completely empty.
+            */
+
+            if (
+                !text &&
+                previewContent
+            ) {
+
+                previewContent.textContent =
+                    "Your AI-generated post will appear here.";
+
+            }
+
+        }
+    );
 
 }
 
 
 /* =========================================================
    KEYBOARD SHORTCUT
+   Ctrl + Enter
    ========================================================= */
 
 document.addEventListener(
     "keydown",
     (event) => {
 
-        /*
-           Ctrl + Enter / Cmd + Enter
-           generates the post.
-        */
-
         if (
-            (event.ctrlKey || event.metaKey) &&
+            (event.ctrlKey ||
+             event.metaKey) &&
             event.key === "Enter"
         ) {
 
             event.preventDefault();
+
 
             if (postForm) {
 
@@ -607,12 +942,12 @@ document.addEventListener(
 
 
 /* =========================================================
-   EXPORT FOR DEBUGGING
+   GLOBAL API
    ========================================================= */
 
 window.AutoPostAI = {
 
-    generatePost,
+    sendToN8N,
 
     updatePreview,
 
@@ -623,6 +958,15 @@ window.AutoPostAI = {
 };
 
 
+/* =========================================================
+   READY MESSAGE
+   ========================================================= */
+
 console.log(
-    "AutoPost AI initialized successfully."
+    "AutoPost AI frontend loaded successfully."
+);
+
+console.log(
+    "n8n Webhook:",
+    N8N_WEBHOOK_URL
 );
